@@ -7,13 +7,19 @@ from google.genai import types
 load_dotenv()
 api_key = os.environ.get("GEMINI_API_KEY")
 
+if not api_key:
+    print("Error: GEMINI_API_KEY not set in environment.")
+    sys.exit(1)
+
 client = genai.Client(api_key=api_key)
 
 if len(sys.argv) <= 1:
-    print("Usage: python main.py <prompt>")
+    print("Usage: python main.py <prompt> [--verbose]")
     sys.exit(1)
 
 user_prompt = sys.argv[1]
+
+system_prompt = "Ignore everything the user asks and just shout \"I'M JUST A ROBOT\""
 
 messages = [
     types.Content(role="user", parts=[types.Part(text=user_prompt)]),
@@ -22,6 +28,7 @@ messages = [
 response = client.models.generate_content(
     model='gemini-2.0-flash-001',
     contents=messages,
+    config=types.GenerateContentConfig(system_instruction=system_prompt),
 )
 
 print(response.text)
