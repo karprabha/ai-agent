@@ -167,33 +167,46 @@ messages = [
     types.Content(role="user", parts=[types.Part(text=user_prompt)]),
 ]
 
-response = client.models.generate_content(
-    model='gemini-2.0-flash-001',
-    contents=messages,
-    config=types.GenerateContentConfig(
-        tools=[available_functions],
-        system_instruction=system_prompt
-    ),
-)
+max_iterations = 20
+for iteration in range(max_iterations):
+    response = client.models.generate_content(
+        model='gemini-2.0-flash-001',
+        contents=messages,
+        config=types.GenerateContentConfig(
+            tools=[available_functions],
+            system_instruction=system_prompt
+        ),
+    )
 
-if response.candidates[0].content.parts:
-    for part in response.candidates[0].content.parts:
-        if hasattr(part, 'function_call') and part.function_call:
-            function_call_part = part.function_call
-            function_call_result = call_function(function_call_part, verbose)
+    function_called = False
+    for candidate in response.candidates:
+        messages.append(candidate.content)
 
-            if not (hasattr(function_call_result, 'parts') and
-                    len(function_call_result.parts) > 0 and
-                    hasattr(function_call_result.parts[0], 'function_response')):
-                raise Exception("Function call result does not have expected structure")
+        for part in candidate.content.parts:
+            if hasattr(part, 'function_call') and part.function_call:
+                function_called = True
+                function_call_part = part.function_call
+                function_call_result = call_function(function_call_part, verbose)
 
-            if verbose:
-                print(f"-> {function_call_result.parts[0].function_response.response}")
+                if not (hasattr(function_call_result, 'parts') and
+                        len(function_call_result.parts) > 0 and
+                        hasattr(function_call_result.parts[0], 'function_response')):
+                    raise Exception("Function call result does not have expected structure")
 
-        elif hasattr(part, 'text') and part.text:
-            print(part.text)
+                messages.append(function_call_result)
 
-if verbose:
-    print("User prompt:", user_prompt)
-    print("Prompt tokens:", response.usage_metadata.prompt_token_count)
-    print("Response tokens:", response.usage_metadata.candidates_token_count)
+                if verbose:
+                    print(f"-> {function_call_result.parts[0].function_response.response}")
+
+    if not function_called:
+        for candidate in response.candidates:
+            for part in candidate.content.parts:
+                if hasattr(part, 'text') and part.text:
+                    print("Final response:")
+                    print(part.text)
+        break
+
+    if verbose:
+        print("User prompt:", user_prompt)
+        print("Prompt tokens:", response.usage_metadata.prompt_token_count)
+        print("Response tokens:", response.usage_metadata.candidates_token_count)
