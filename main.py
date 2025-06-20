@@ -18,11 +18,65 @@ if not api_key:
 
 client = genai.Client(api_key=api_key)
 
+def call_function(function_call_part, verbose=False):
+    function_name = function_call_part.name
+    function_args = dict(function_call_part.args)
+
+    if verbose:
+        print(f"Calling function: {function_call_part.name}({function_call_part.args})")
+    else:
+        print(f" - Calling function: {function_call_part.name}")
+
+    function_args['working_directory'] = './calculator'
+
+    available_function_map = {
+        'get_files_info': get_files_info,
+        'get_file_content': get_file_content,
+        'write_file': write_file,
+        'run_python_file': run_python_file,
+    }
+
+    if function_name not in available_function_map:
+        return types.Content(
+            role="tool",
+            parts=[
+                types.Part.from_function_response(
+                    name=function_name,
+                    response={"error": f"Unknown function: {function_name}"},
+                )
+            ],
+        )
+
+    try:
+        function_to_call = available_function_map[function_name]
+        function_result = function_to_call(**function_args)
+
+        return types.Content(
+            role="tool",
+            parts=[
+                types.Part.from_function_response(
+                    name=function_name,
+                    response={"result": function_result},
+                )
+            ],
+        )
+    except Exception as e:
+        return types.Content(
+            role="tool",
+            parts=[
+                types.Part.from_function_response(
+                    name=function_name,
+                    response={"error": f"Error calling function: {str(e)}"},
+                )
+            ],
+        )
+
 if len(sys.argv) <= 1:
     print("Usage: python main.py <prompt> [--verbose]")
     sys.exit(1)
 
 user_prompt = sys.argv[1]
+verbose = len(sys.argv) == 3 and sys.argv[2] == "--verbose"
 
 schema_get_files_info = types.FunctionDeclaration(
     name="get_files_info",
@@ -126,11 +180,20 @@ if response.candidates[0].content.parts:
     for part in response.candidates[0].content.parts:
         if hasattr(part, 'function_call') and part.function_call:
             function_call_part = part.function_call
-            print(f"Calling function: {function_call_part.name}({function_call_part.args})")
+            function_call_result = call_function(function_call_part, verbose)
+
+            if not (hasattr(function_call_result, 'parts') and
+                    len(function_call_result.parts) > 0 and
+                    hasattr(function_call_result.parts[0], 'function_response')):
+                raise Exception("Function call result does not have expected structure")
+
+            if verbose:
+                print(f"-> {function_call_result.parts[0].function_response.response}")
+
         elif hasattr(part, 'text') and part.text:
             print(part.text)
 
-if len(sys.argv) == 3 and sys.argv[2] == "--verbose":
+if verbose:
     print("User prompt:", user_prompt)
     print("Prompt tokens:", response.usage_metadata.prompt_token_count)
     print("Response tokens:", response.usage_metadata.candidates_token_count)
